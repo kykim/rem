@@ -27,6 +27,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E5467EA1162F3AFB00676892 /* LICENSE */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		E5467EA3162F3CD600676892 /* README.asciidoc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = README.asciidoc; sourceTree = "<group>"; };
 		E5C96A3616261A4A00611642 /* rem */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = rem; sourceTree = BUILT_PRODUCTS_DIR; };
 		E5C96A3A16261A4A00611642 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		E5C96A3D16261A4A00611642 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
@@ -51,6 +53,8 @@
 		E5C96A2B16261A4A00611642 = {
 			isa = PBXGroup;
 			children = (
+				E5467EA1162F3AFB00676892 /* LICENSE */,
+				E5467EA3162F3CD600676892 /* README.asciidoc */,
 				E5C96A3C16261A4A00611642 /* rem */,
 				E5C96A3916261A4A00611642 /* Frameworks */,
 				E5C96A3716261A4A00611642 /* Products */,
@@ -240,6 +244,7 @@
 				E5C96A4716261A4A00611642 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

@@ -1,0 +1,52 @@
+rem(1)
+=====
+:doctype: manpage
+
+NAME
+----
+rem - command-line interface to OSX Reminders event store
+
+SYNOPSIS
+--------
+*rem* ACTION <REMINDER_LIST> <REMINDER_ID>
+
+ACTIONS
+-------
+*ls*:: list reminders
+*rm*:: remove reminder from list
+*cat*:: show reminder detail
+*done*::mark reminder as complete
+*help*::show usage information
+*verison*::show version information
+
+AUTHOR
+------
+Kevin Y. Kim
+
+RESOURCES
+---------
+Github: <https://github.com/kykim/rem>
+
+CONTRIBUTIONS
+-------------
+
+Any and all contributions offered in any form, past present or
+future, are understood to be in complete agreement and acceptance
+with the Apache License v2.0.
+
+LICENSE
+-------
+
+Copyright (c) 2012 Kevin Y. Kim
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

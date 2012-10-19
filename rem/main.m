@@ -24,22 +24,26 @@ static CommandType command;
 static NSString *calendar;
 static NSString *reminder_id;
 
-static NSDictionary *calendars;
-
 static EKEventStore *store;
+static NSDictionary *calendars;
+static EKReminder *reminder;
 
+#define TACKER @"├──"
+#define CORNER @"└──"
+#define PIPER  @"│  "
+#define SPACER @"   "
 
 /*!
     @function _print
     @abstract Wrapper for fprintf with NSString format
-    @discussion Wraps call to fprintf with an NSString format argument, permitting use of the
-        object formatter '%@'
     @param stream
         Output stream to write to
     @param format
         (f)printf style format string
     @param ...
         optional arguments as defined by format string
+    @discussion Wraps call to fprintf with an NSString format argument, permitting use of the
+        object formatter '%@'
  */
 static void _print(FILE *file, NSString *format, ...)
 {
@@ -154,10 +158,10 @@ static NSArray* fetchReminders()
 
 /*!
     @function sortReminders
+    @abstract Sort an array of reminders into a dictionary.
     @returns NSDictionary
     @param reminders
         NSArray of EKReminder instances
-    @abstract Sort an array of reminders into a dictionary.
     @description Sort an array of EKReminder instances into a dictionary.
         The keys of the dictionary are reminder list (calendar) names, which is a property of each
         EKReminder. The values are arrays containing EKReminders that share a common calendar.
@@ -183,34 +187,185 @@ static NSDictionary* sortReminders(NSArray *reminders)
 }
 
 /*!
+    @function validateArguments
+    @abstract Verfy the (reminder) list and reminder_id command-line arguments
+    @description If provided, verify that the (reminder) list and reminder_id
+        command-line arguments are valid. Compare the (reminder) list to the keys
+        of the calendars dictionary. Verify the integer value of the reminder_id
+        is within the index range of the appropriate calendar array.
+ */
+static void validateArguments()
+{
+    if (command == CMD_LS && calendar == nil)
+        return;
+    
+    NSUInteger calendar_id = [[calendars allKeys] indexOfObject:calendar];
+    if (calendar_id == NSNotFound) {
+        _print(stderr, @"rem: Error - Unknown Reminder List: \"%@\"\n", calendar);
+        exit(-1);
+    }
+    
+    if (command == CMD_LS && reminder_id == nil)
+        return;
+    
+    NSInteger r_id = [reminder_id integerValue] - 1;
+    NSArray *reminders = [calendars objectForKey:calendar];
+    if (r_id < 0 || r_id > reminders.count-1) {
+        _print(stderr, @"rem: Error - ID Out of Range for Reminder List: %@\n", calendar);
+        exit(-1);
+    }
+    reminder = [reminders objectAtIndex:r_id];
+}
+
+/*!
+    @function _printCalendarLine
+    @abstract format and output line containing calendar (reminder list) name
+    @param line
+        line to output
+    @param last
+        is this the last calendar being diplayed?
+    @description format and output line containing calendar (reminder list) name.
+        If it is the last calendar being displayed, prefix the name with a corner
+        unicode character. If it is not the last calendar, prefix the name with a 
+        right-tack unicode character. Both prefix unicode characters are followed
+        by two horizontal lines, also unicode.
+ */
+static void _printCalendarLine(NSString *line, BOOL last)
+{
+    NSString *prefix = (last) ? CORNER : TACKER;
+    _print(stdout, @"%@ %@\n", prefix, line);
+}
+
+/*!
+    @function _printReminderLine
+    @abstract format and output line containing reminder information
+    @param line
+        line to output
+    @param last
+        is this the last reminder being diplayed?
+    @param lastCalendar
+        does this reminder belong to last calendar being displayed?
+    @description format and output line containing reminder information.
+        If it is the last reminder being displayed, prefix the name with a corner
+        unicode character. If it is not the last reminder, prefix the name with a
+        right-tack unicode character. Both prefix unicode characters are followed
+        by two horizontal lines, also unicode. Also, indent the reminder with either
+        blank space, if part of last calendar; or vertical bar followed by blank space.
+ */
+static void _printReminderLine(NSUInteger id, NSString *line, BOOL last, BOOL lastCalendar)
+{
+    NSString *indent = (lastCalendar) ? SPACER : PIPER;
+    NSString *prefix = (last) ? CORNER : TACKER;
+    _print(stdout, @"%@%@ %ld. %@\n", indent, prefix, id, line);
+}
+
+/*!
+    @function _listCalendar
+    @abstract output a calaendar and its reminders
+    @param cal
+        name of calendar (reminder list)
+    @param last
+        is this the last calendar being displayed?
+    @description given a calendar (reminder list) name, output the calendar via
+        _printCalendarLine. Retrieve the calendars reminders and display via _printReminderLine.
+        Each reminder is prepended with an index/id for other commands
+ */
+static void _listCalendar(NSString *cal, BOOL last)
+{
+    _printCalendarLine(cal, last);
+    NSArray *reminders = [calendars valueForKey:cal];
+    for (NSUInteger i = 0; i < reminders.count; i++) {
+        EKReminder *r = [reminders objectAtIndex:i];
+        _printReminderLine(i+1, r.title, (r == [reminders lastObject]), last);
+    }
+}
+
+/*!
+    @function listReminders
+    @abstract list reminders
+    @description list all reminders if no calendar (reminder list) specified,
+        or list reminders in specified calendar
  */
 static void listReminders()
 {
-    NSLog(@"List Reminders");
-}
+    _print(stdout, @"Reminders\n");
+    if (calendar) {
+        _listCalendar(calendar, YES);
+    }
+    else {
+        for (NSString *cal in calendars) {
+            _listCalendar(cal, (cal == [[calendars allKeys] lastObject]));
+        }
+    }}
 
 /*!
+    @function removeReminder
+    @abstract remove a specified reminder
+    @description remove a specified reminder
  */
 static void removeReminder()
 {
-    NSLog(@"Remove Reminders %@/%@", calendar, reminder_id);
+    NSError *error;
+    BOOL success = [store removeReminder:reminder commit:YES error:&error];
+    if (!success) {
+        _print(stderr, @"rem: Error removing Reminder (%@) from list %@\n\t%@", reminder_id, calendar, [error localizedDescription]);
+    }
 }
 
 /*!
+    @function showReminder
+    @abstract show reminder details
+    @description show reminder details: creation date, last modified date (if different than
+        creation date), start date (if defined), due date (if defined), notes (if defined)
  */
 static void showReminder()
 {
-    NSLog(@"Show Reminders %@/%@", calendar, reminder_id);
+    NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
+    [dateFormatter setDateStyle:NSDateFormatterShortStyle];
+   
+    _print(stdout, @"Reminder: %@\n", reminder.title);
+    _print(stdout, @"\tList: %@\n", calendar);
+    
+    _print(stdout, @"\tCreated On: %@\n", [dateFormatter stringFromDate:reminder.creationDate]);
+        
+    if (reminder.lastModifiedDate != reminder.creationDate) {
+        _print(stdout, @"\tLast Modified On: %@\n", [dateFormatter stringFromDate:reminder.lastModifiedDate]);
+    }
+        
+    NSDate *startDate = [reminder.startDateComponents date];
+    if (startDate) {
+        _print(stdout, @"\tStarted On: %@\n", [dateFormatter stringFromDate:startDate]);
+    }
+        
+    NSDate *dueDate = [reminder.dueDateComponents date];
+    if (dueDate) {
+        _print(stdout, @"\tDue On: %@\n", [dateFormatter stringFromDate:dueDate]);
+    }
+    
+    if (reminder.hasNotes) {
+        _print(stdout, @"\tNotes: %@\n", reminder.notes);
+    }
 }
 
 /*!
+    @function completeReminder
+    @abstract mark specified reminder as complete
+    @description mark specified reminder as complete
  */
 static void completeReminder()
 {
-    NSLog(@"Complete Reminders %@/%@", calendar, reminder_id);
+    reminder.completed = YES;
+    NSError *error;
+    BOOL success = [store saveReminder:reminder commit:YES error:&error];
+    if (!success) {
+        _print(stderr, @"rem: Error marking Reminder (%@) from list %@\n\t%@", reminder_id, calendar, [error localizedDescription]);
+    }
 }
 
 /*!
+    @function handleCommand
+    @abstract dispatch to correct function based on command-line argument
+    @description dispatch to correct function based on command-line argument
  */
 static void handleCommand()
 {
@@ -240,12 +395,13 @@ int main(int argc, const char * argv[])
 
     @autoreleasepool {
         parseArguments();
-
+        
         store = [[EKEventStore alloc] initWithAccessToEntityTypes:EKEntityMaskReminder];
         
         NSArray *reminders = fetchReminders();
         calendars = sortReminders(reminders);
         
+        validateArguments();
         handleCommand();
     }
     return 0;
