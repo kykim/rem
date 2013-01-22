@@ -9,10 +9,11 @@
 #import <Foundation/Foundation.h>
 #import <EventKit/EventKit.h>
 
-#define COMMANDS @[ @"ls", @"rm", @"cat", @"done", @"help", @"version" ]
+#define COMMANDS @[ @"ls", @"add", @"rm", @"cat", @"done", @"help", @"version" ]
 typedef enum _CommandType {
     CMD_UNKNOWN = -1,
     CMD_LS = 0,
+    CMD_ADD,
     CMD_RM,
     CMD_CAT,
     CMD_DONE,
@@ -74,6 +75,8 @@ static void _usage()
     _print(stdout, @"\t\tList reminders\n");
     _print(stdout, @"\trem rm [list] [reminder]\n");
     _print(stdout, @"\t\tRemove reminder from list\n");
+    _print(stdout, @"\trem add [reminder]\n");
+    _print(stdout, @"\t\tAdd reminder to your default list\n");
     _print(stdout, @"\trem cat [list] [item]\n");
     _print(stdout, @"\t\tShow reminder detail\n");
     _print(stdout, @"\trem done [list] [item]\n");
@@ -116,6 +119,12 @@ static void parseArguments()
     else if (command == CMD_VERSION) {
         _version();
         exit(0);
+    }
+    
+    // if we're adding a reminder, overload reminder_id to hold the reminder text (title)
+    if (command == CMD_ADD) {
+        reminder_id = [[args subarrayWithRange:NSMakeRange(1, [args count]-1)] componentsJoinedByString:@" "];
+        return;
     }
 
     // get the reminder list (calendar) if exists
@@ -197,6 +206,9 @@ static NSDictionary* sortReminders(NSArray *reminders)
 static void validateArguments()
 {
     if (command == CMD_LS && calendar == nil)
+        return;
+    
+    if (command == CMD_ADD)
         return;
     
     NSUInteger calendar_id = [[calendars allKeys] indexOfObject:calendar];
@@ -296,7 +308,26 @@ static void listReminders()
         for (NSString *cal in calendars) {
             _listCalendar(cal, (cal == [[calendars allKeys] lastObject]));
         }
-    }}
+    }
+}
+
+/*!
+    @function addReminder
+    @abstract add a reminder
+    @description add a reminder to the default calendar
+ */
+static void addReminder()
+{
+    reminder = [EKReminder reminderWithEventStore:store];
+    reminder.calendar = [store defaultCalendarForNewReminders];
+    reminder.title = reminder_id;
+    
+    NSError *error;
+    BOOL success = [store saveReminder:reminder commit:YES error:&error];
+    if (!success) {
+        _print(stderr, @"rem: Error adding Reminder (%@)\n\t%@", reminder_id, [error localizedDescription]);        
+    }
+}
 
 /*!
     @function removeReminder
@@ -373,6 +404,9 @@ static void handleCommand()
         case CMD_LS:
             listReminders();
             break;
+        case CMD_ADD:
+            addReminder();
+            break;
         case CMD_RM:
             removeReminder();
             break;
@@ -398,8 +432,10 @@ int main(int argc, const char * argv[])
         
         store = [[EKEventStore alloc] initWithAccessToEntityTypes:EKEntityMaskReminder];
         
-        NSArray *reminders = fetchReminders();
-        calendars = sortReminders(reminders);
+        if (command != CMD_ADD) {
+            NSArray *reminders = fetchReminders();
+            calendars = sortReminders(reminders);
+        }
         
         validateArguments();
         handleCommand();
