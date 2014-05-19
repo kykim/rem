@@ -83,7 +83,7 @@ static void _usage()
     _print(stdout, @"\t\tMark reminder as complete\n");
     _print(stdout, @"\trem help\n");
     _print(stdout, @"\t\tShow this text\n");
-    _print(stdout, @"\trem verison\n");
+    _print(stdout, @"\trem version\n");
     _print(stdout, @"\t\tShow version information\n");
 }
 
@@ -95,14 +95,14 @@ static void _usage()
 static void parseArguments()
 {
     command = CMD_LS;
-    
+
     NSMutableArray *args = [NSMutableArray arrayWithArray:[[NSProcessInfo processInfo] arguments]];
     [args removeObjectAtIndex:0];    // pop off application argument
-    
+
     // args array is empty, command was excuted without arguments
     if (args.count == 0)
         return;
-    
+
     NSString *cmd = [args objectAtIndex:0];
     command = (CommandType)[COMMANDS indexOfObject:cmd];
     if (command == CMD_UNKNOWN) {
@@ -110,7 +110,7 @@ static void parseArguments()
         _usage();
         exit(-1);
     }
-    
+
     // handle help and version requests
     if (command == CMD_HELP) {
         _usage();
@@ -120,7 +120,7 @@ static void parseArguments()
         _version();
         exit(0);
     }
-    
+
     // if we're adding a reminder, overload reminder_id to hold the reminder text (title)
     if (command == CMD_ADD) {
         reminder_id = [[args subarrayWithRange:NSMakeRange(1, [args count]-1)] componentsJoinedByString:@" "];
@@ -136,7 +136,7 @@ static void parseArguments()
     if (args.count >= 3) {
         reminder_id = [args objectAtIndex:2];
     }
-    
+
     return;
 }
 
@@ -144,8 +144,8 @@ static void parseArguments()
     @function fetchReminders
     @returns NSArray of EKReminders
     @abstract Fetch all reminders from Event Store
-    @description use EventKit API to define a predicate to fetch all reminders from the 
-        Event Store. Loop over current Run Loop until asynchronous reminder fetch is 
+    @description use EventKit API to define a predicate to fetch all reminders from the
+        Event Store. Loop over current Run Loop until asynchronous reminder fetch is
         completed.
  */
 static NSArray* fetchReminders()
@@ -161,7 +161,7 @@ static NSArray* fetchReminders()
     while (fetching) {
         [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
     }
-    
+
     return reminders;
 }
 
@@ -183,7 +183,7 @@ static NSDictionary* sortReminders(NSArray *reminders)
         for (EKReminder *r in reminders) {
             if (r.completed)
                 continue;
-            
+
             EKCalendar *calendar = [r calendar];
             if ([results objectForKey:calendar.title] == nil) {
                 [results setObject:[NSMutableArray array] forKey:calendar.title];
@@ -207,19 +207,19 @@ static void validateArguments()
 {
     if (command == CMD_LS && calendar == nil)
         return;
-    
+
     if (command == CMD_ADD)
         return;
-    
+
     NSUInteger calendar_id = [[calendars allKeys] indexOfObject:calendar];
     if (calendar_id == NSNotFound) {
         _print(stderr, @"rem: Error - Unknown Reminder List: \"%@\"\n", calendar);
         exit(-1);
     }
-    
+
     if (command == CMD_LS && reminder_id == nil)
         return;
-    
+
     NSInteger r_id = [reminder_id integerValue] - 1;
     NSArray *reminders = [calendars objectForKey:calendar];
     if (r_id < 0 || r_id > reminders.count-1) {
@@ -238,7 +238,7 @@ static void validateArguments()
         is this the last calendar being diplayed?
     @description format and output line containing calendar (reminder list) name.
         If it is the last calendar being displayed, prefix the name with a corner
-        unicode character. If it is not the last calendar, prefix the name with a 
+        unicode character. If it is not the last calendar, prefix the name with a
         right-tack unicode character. Both prefix unicode characters are followed
         by two horizontal lines, also unicode.
  */
@@ -321,11 +321,11 @@ static void addReminder()
     reminder = [EKReminder reminderWithEventStore:store];
     reminder.calendar = [store defaultCalendarForNewReminders];
     reminder.title = reminder_id;
-    
+
     NSError *error;
     BOOL success = [store saveReminder:reminder commit:YES error:&error];
     if (!success) {
-        _print(stderr, @"rem: Error adding Reminder (%@)\n\t%@", reminder_id, [error localizedDescription]);        
+        _print(stderr, @"rem: Error adding Reminder (%@)\n\t%@", reminder_id, [error localizedDescription]);
     }
 }
 
@@ -353,26 +353,26 @@ static void showReminder()
 {
     NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
     [dateFormatter setDateStyle:NSDateFormatterShortStyle];
-   
+
     _print(stdout, @"Reminder: %@\n", reminder.title);
     _print(stdout, @"\tList: %@\n", calendar);
-    
+
     _print(stdout, @"\tCreated On: %@\n", [dateFormatter stringFromDate:reminder.creationDate]);
-        
+
     if (reminder.lastModifiedDate != reminder.creationDate) {
         _print(stdout, @"\tLast Modified On: %@\n", [dateFormatter stringFromDate:reminder.lastModifiedDate]);
     }
-        
+
     NSDate *startDate = [reminder.startDateComponents date];
     if (startDate) {
         _print(stdout, @"\tStarted On: %@\n", [dateFormatter stringFromDate:startDate]);
     }
-        
+
     NSDate *dueDate = [reminder.dueDateComponents date];
     if (dueDate) {
         _print(stdout, @"\tDue On: %@\n", [dateFormatter stringFromDate:dueDate]);
     }
-    
+
     if (reminder.hasNotes) {
         _print(stdout, @"\tNotes: %@\n", reminder.notes);
     }
@@ -429,14 +429,14 @@ int main(int argc, const char * argv[])
 
     @autoreleasepool {
         parseArguments();
-        
+
         store = [[EKEventStore alloc] initWithAccessToEntityTypes:EKEntityMaskReminder];
-        
+
         if (command != CMD_ADD) {
             NSArray *reminders = fetchReminders();
             calendars = sortReminders(reminders);
         }
-        
+
         validateArguments();
         handleCommand();
     }
