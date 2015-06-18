@@ -15,9 +15,9 @@ ACTIONS
 *ls*:: list reminders
 *rm*:: remove reminder from list
 *cat*:: show reminder detail
-*done*::mark reminder as complete
-*help*::show usage information
-*verison*::show version information
+*done*:: mark reminder as complete
+*help*:: show usage information
+*verison*:: show version information
 
 AUTHOR
 ------
