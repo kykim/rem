@@ -19,6 +19,18 @@ ACTIONS
 *help*:: show usage information
 *verison*:: show version information
 
+BUILD
+-----
+(xcode required)
+
+[source,bash]
+----
+git clone https://github.com/kykim/rem.git
+cd rem
+xcodebuild
+cp build/Release/rem /usr/local/bin
+----
+
 AUTHOR
 ------
 Kevin Y. Kim
