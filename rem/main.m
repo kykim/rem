@@ -9,7 +9,7 @@
 #import <Foundation/Foundation.h>
 #import <EventKit/EventKit.h>
 
-#define COMMANDS @[ @"ls", @"add", @"rm", @"cat", @"done", @"help", @"version" ]
+#define COMMANDS @[ @"ls", @"add", @"rm", @"cat", @"done", @"help", @"version", @"orgmode"]
 typedef enum _CommandType {
     CMD_UNKNOWN = -1,
     CMD_LS = 0,
@@ -18,7 +18,8 @@ typedef enum _CommandType {
     CMD_CAT,
     CMD_DONE,
     CMD_HELP,
-    CMD_VERSION
+    CMD_VERSION,
+    CMD_ORGMODE
 } CommandType;
 
 static CommandType command;
@@ -33,6 +34,8 @@ static EKReminder *reminder;
 #define CORNER @"└──"
 #define PIPER  @"│  "
 #define SPACER @"   "
+
+static NSString *orgFile;
 
 /*!
     @function _print
@@ -61,7 +64,7 @@ static void _print(FILE *file, NSString *format, ...)
  */
 static void _version()
 {
-    _print(stdout, @"rem Version 0.01\n");
+    _print(stdout, @"rem Version 0.02\n");
 }
 
 /*!
@@ -85,6 +88,9 @@ static void _usage()
     _print(stdout, @"\t\tShow this text\n");
     _print(stdout, @"\trem version\n");
     _print(stdout, @"\t\tShow version information\n");
+    
+    _print(stdout, @"\trem orgmode\n");
+    _print(stdout, @"\t\tPrints org-mode files\n");
 }
 
 /*!
@@ -127,16 +133,23 @@ static void parseArguments()
         return;
     }
 
+    // OrgMode output file
+    if (command == CMD_ORGMODE && args.count >= 2) {
+        orgFile = [args objectAtIndex:1];
+        return;
+    }
+
     // get the reminder list (calendar) if exists
     if (args.count >= 2) {
         calendar = [args objectAtIndex:1];
     }
 
+
     // get the reminder id if exists
     if (args.count >= 3) {
         reminder_id = [args objectAtIndex:2];
     }
-
+      
     return;
 }
 
@@ -206,6 +219,9 @@ static NSDictionary* sortReminders(NSArray *reminders)
 static void validateArguments()
 {
     if (command == CMD_LS && calendar == nil)
+        return;
+    
+    if (command == CMD_ORGMODE && calendar == nil)
         return;
 
     if (command == CMD_ADD)
@@ -394,6 +410,101 @@ static void completeReminder()
 }
 
 /*!
+    @function printOrgMode
+    @abstract print reminder lists as org-mode syntax
+    @description print reminder lists as org-mode syntax
+ */
+static void printOrgMode()
+{
+    NSFileHandle* fileHandle;
+
+    if(orgFile)
+    {
+        [[NSFileManager defaultManager] createFileAtPath:orgFile contents:nil attributes:nil];
+        fileHandle = [NSFileHandle fileHandleForWritingAtPath:orgFile];
+    }
+    else
+    {
+        fileHandle = [NSFileHandle fileHandleWithStandardOutput];
+    }
+    
+    bool scheduleWithTime = false;
+
+    NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
+    [dateFormatter setDateFormat:@"yyyy-MM-dd HH:mm"];
+
+    NSDateFormatter *dateFormatterSchedule = [[NSDateFormatter alloc] init];
+    if(scheduleWithTime)
+        [dateFormatterSchedule setDateFormat:@"yyyy-MM-dd HH:mm"];
+    else
+        [dateFormatterSchedule setDateFormat:@"yyyy-MM-dd"];
+
+    for (NSString *cal in calendars) {
+        bool last = (cal == [[calendars allKeys] lastObject]);
+
+        [fileHandle writeData:[[NSString stringWithFormat:@"* %@\n", cal] dataUsingEncoding:NSUTF8StringEncoding]];
+        NSArray *reminders = [calendars valueForKey:cal];
+        for (NSUInteger i = 0; i < reminders.count; i++) {
+            EKReminder *reminder = [reminders objectAtIndex:i];
+
+            {
+                // priority seems to be:
+                // high = 1
+                // medium = 5
+                // low = 9
+                NSString* priority = @"";
+                switch(reminder.priority)
+                {
+                case 1:
+                    priority = @"[#A] ";
+                    break;
+                case 5:
+                    priority = @"[#B] ";
+                    break;
+                case 9:
+                    priority = @"[#C] ";
+                    break;
+                default:
+                    break;
+                }
+                
+                [fileHandle writeData:[[NSString stringWithFormat:@"** TODO %@%@\n", priority, reminder.title] dataUsingEncoding:NSUTF8StringEncoding]];
+
+                [fileHandle writeData:[[NSString stringWithFormat:@":LOGBOOK:\nAPPLE_REM_ID: %@\n:END:\n", reminder.calendarItemIdentifier] dataUsingEncoding:NSUTF8StringEncoding]];
+
+                [fileHandle writeData:[[NSString stringWithFormat:@"Created: [%@]\n", [dateFormatter stringFromDate:reminder.creationDate]] dataUsingEncoding:NSUTF8StringEncoding]];
+
+                if (reminder.lastModifiedDate != reminder.creationDate) {
+                    [fileHandle writeData:[[NSString stringWithFormat:@"Modified: [%@]\n", [dateFormatter stringFromDate:reminder.lastModifiedDate]] dataUsingEncoding:NSUTF8StringEncoding]];
+                }
+
+                NSDate *startDate = [reminder.startDateComponents date];
+                if (startDate) {
+                    [fileHandle writeData:[[NSString stringWithFormat: @"Started On: [%@]\n", [dateFormatter stringFromDate:startDate]] dataUsingEncoding:NSUTF8StringEncoding]];
+                }
+
+                //NSDate *dueDate = [reminder.dueDateComponents date];
+                NSArray *alarms = reminder.alarms;
+
+                for(NSUInteger j = 0; j < alarms.count; j++)
+                {
+                    EKAlarm *alarm = [alarms objectAtIndex:j];
+                    NSDate *dueDate = alarm.absoluteDate;
+                    
+                    if (dueDate) {
+                        [fileHandle writeData:[[NSString stringWithFormat: @"SCHEDULED: <%@>\n", [dateFormatterSchedule stringFromDate:dueDate]] dataUsingEncoding:NSUTF8StringEncoding]];
+                    }
+                }
+
+                if (reminder.hasNotes) {
+                    [fileHandle writeData:[[NSString stringWithFormat:@"%@\n", reminder.notes] dataUsingEncoding:NSUTF8StringEncoding]];
+                }
+            }
+        }
+    }
+}
+
+/*!
     @function handleCommand
     @abstract dispatch to correct function based on command-line argument
     @description dispatch to correct function based on command-line argument
@@ -401,27 +512,29 @@ static void completeReminder()
 static void handleCommand()
 {
     switch (command) {
-        case CMD_LS:
-            listReminders();
-            break;
-        case CMD_ADD:
-            addReminder();
-            break;
-        case CMD_RM:
-            removeReminder();
-            break;
-        case CMD_CAT:
-            showReminder();
-            break;
-        case CMD_DONE:
-            completeReminder();
-            break;
-        case CMD_HELP:
-        case CMD_VERSION:
-        case CMD_UNKNOWN:
-            break;
+    case CMD_LS:
+        listReminders();
+        break;
+    case CMD_ADD:
+        addReminder();
+        break;
+    case CMD_RM:
+        removeReminder();
+        break;
+    case CMD_CAT:
+        showReminder();
+        break;
+    case CMD_DONE:
+        completeReminder();
+        break;
+    case CMD_ORGMODE:
+        printOrgMode();
+        break;
+    case CMD_HELP:
+    case CMD_VERSION:
+    case CMD_UNKNOWN:
+        break;
     }
-
 }
 
 int main(int argc, const char * argv[])
