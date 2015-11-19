@@ -35,7 +35,10 @@ static EKReminder *reminder;
 #define PIPER  @"│  "
 #define SPACER @"   "
 
-static NSString *orgFile;
+// For OrgMode
+static bool scheduleWithTime = false; // show time in scheduled alarm
+static bool showCompleted = false; // show completed tasks
+static NSString *orgFile; // output file, if nil -> stdout
 
 /*!
     @function _print
@@ -133,9 +136,13 @@ static void parseArguments()
         return;
     }
 
-    // OrgMode output file
-    if (command == CMD_ORGMODE && args.count >= 2) {
-        orgFile = [args objectAtIndex:1];
+    // OrgMode settings
+    if (command == CMD_ORGMODE) {
+        showCompleted = true;
+
+        if(args.count >= 2)
+            orgFile = [args objectAtIndex:1];
+        
         return;
     }
 
@@ -194,7 +201,7 @@ static NSDictionary* sortReminders(NSArray *reminders)
     if (reminders != nil && reminders.count > 0) {
         results = [NSMutableDictionary dictionary];
         for (EKReminder *r in reminders) {
-            if (r.completed)
+            if (!showCompleted && r.completed)
                 continue;
 
             EKCalendar *calendar = [r calendar];
@@ -217,7 +224,7 @@ static NSDictionary* sortReminders(NSArray *reminders)
         is within the index range of the appropriate calendar array.
  */
 static void validateArguments()
-{
+{ 
     if (command == CMD_LS && calendar == nil)
         return;
     
@@ -427,8 +434,6 @@ static void printOrgMode()
     {
         fileHandle = [NSFileHandle fileHandleWithStandardOutput];
     }
-    
-    bool scheduleWithTime = false;
 
     NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
     [dateFormatter setDateFormat:@"yyyy-MM-dd HH:mm"];
@@ -467,10 +472,18 @@ static void printOrgMode()
                 default:
                     break;
                 }
+
+                NSString* flag = @"TODO";
+                if(reminder.completed)
+                    flag = @"DONE";
                 
-                [fileHandle writeData:[[NSString stringWithFormat:@"** TODO %@%@\n", priority, reminder.title] dataUsingEncoding:NSUTF8StringEncoding]];
+                [fileHandle writeData:[[NSString stringWithFormat:@"** %@ %@%@\n", flag, priority, reminder.title] dataUsingEncoding:NSUTF8StringEncoding]];
 
                 [fileHandle writeData:[[NSString stringWithFormat:@":LOGBOOK:\nAPPLE_REM_ID: %@\n:END:\n", reminder.calendarItemIdentifier] dataUsingEncoding:NSUTF8StringEncoding]];
+
+                if (reminder.completed) {
+                   [fileHandle writeData:[[NSString stringWithFormat: @"CLOSED: [%@]\n", [dateFormatter stringFromDate:reminder.completionDate]] dataUsingEncoding:NSUTF8StringEncoding]];
+                }
 
                 [fileHandle writeData:[[NSString stringWithFormat:@"Created: [%@]\n", [dateFormatter stringFromDate:reminder.creationDate]] dataUsingEncoding:NSUTF8StringEncoding]];
 
@@ -499,6 +512,8 @@ static void printOrgMode()
                 if (reminder.hasNotes) {
                     [fileHandle writeData:[[NSString stringWithFormat:@"%@\n", reminder.notes] dataUsingEncoding:NSUTF8StringEncoding]];
                 }
+
+                
             }
         }
     }
