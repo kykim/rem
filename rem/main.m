@@ -481,9 +481,22 @@ static void printOrgMode()
 
                 [fileHandle writeData:[[NSString stringWithFormat:@":LOGBOOK:\nAPPLE_REM_ID: %@\n:END:\n", reminder.calendarItemIdentifier] dataUsingEncoding:NSUTF8StringEncoding]];
 
-                if (reminder.completed) {
-                   [fileHandle writeData:[[NSString stringWithFormat: @"CLOSED: [%@]\n", [dateFormatter stringFromDate:reminder.completionDate]] dataUsingEncoding:NSUTF8StringEncoding]];
+                 if (reminder.completed) {
+                   [fileHandle writeData:[[NSString stringWithFormat: @"CLOSED: [%@] ", [dateFormatter stringFromDate:reminder.completionDate]] dataUsingEncoding:NSUTF8StringEncoding]];
                 }
+
+                 NSArray *alarms = reminder.alarms;
+
+                 for(NSUInteger j = 0; j < alarms.count; j++)
+                 {
+                     EKAlarm *alarm = [alarms objectAtIndex:j];
+                     NSDate *dueDate = alarm.absoluteDate;
+                    
+                     if (dueDate) {
+                         [fileHandle writeData:[[NSString stringWithFormat: @"SCHEDULED: <%@>\n", [dateFormatterSchedule stringFromDate:dueDate]] dataUsingEncoding:NSUTF8StringEncoding]];
+                     }
+                 }
+
 
                 [fileHandle writeData:[[NSString stringWithFormat:@"Created: [%@]\n", [dateFormatter stringFromDate:reminder.creationDate]] dataUsingEncoding:NSUTF8StringEncoding]];
 
@@ -494,19 +507,6 @@ static void printOrgMode()
                 NSDate *startDate = [reminder.startDateComponents date];
                 if (startDate) {
                     [fileHandle writeData:[[NSString stringWithFormat: @"Started On: [%@]\n", [dateFormatter stringFromDate:startDate]] dataUsingEncoding:NSUTF8StringEncoding]];
-                }
-
-                //NSDate *dueDate = [reminder.dueDateComponents date];
-                NSArray *alarms = reminder.alarms;
-
-                for(NSUInteger j = 0; j < alarms.count; j++)
-                {
-                    EKAlarm *alarm = [alarms objectAtIndex:j];
-                    NSDate *dueDate = alarm.absoluteDate;
-                    
-                    if (dueDate) {
-                        [fileHandle writeData:[[NSString stringWithFormat: @"SCHEDULED: <%@>\n", [dateFormatterSchedule stringFromDate:dueDate]] dataUsingEncoding:NSUTF8StringEncoding]];
-                    }
                 }
 
                 if (reminder.hasNotes) {
