@@ -19,6 +19,7 @@ ACTIONS
 *help*:: show usage information
 *version*:: show version information
 *orgmode*:: print all reminder lists with org-mode friendly syntax. accepts output file as parameter
+*parseorg*:: syncs an org-mode json export with reminder event store
 
 BUILD
 -----

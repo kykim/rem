@@ -9,7 +9,7 @@
 #import <Foundation/Foundation.h>
 #import <EventKit/EventKit.h>
 
-#define COMMANDS @[ @"ls", @"add", @"rm", @"cat", @"done", @"help", @"version", @"orgmode"]
+#define COMMANDS @[ @"ls", @"add", @"rm", @"cat", @"done", @"help", @"version", @"orgmode", @"parseorg"]
 typedef enum _CommandType {
     CMD_UNKNOWN = -1,
     CMD_LS = 0,
@@ -19,7 +19,8 @@ typedef enum _CommandType {
     CMD_DONE,
     CMD_HELP,
     CMD_VERSION,
-    CMD_ORGMODE
+    CMD_ORGMODE,
+    CMD_PARSEORG
 } CommandType;
 
 static CommandType command;
@@ -91,9 +92,12 @@ static void _usage()
     _print(stdout, @"\t\tShow this text\n");
     _print(stdout, @"\trem version\n");
     _print(stdout, @"\t\tShow version information\n");
-    
+
+    _print(stdout, @"Org-mode features:\n");
     _print(stdout, @"\trem orgmode\n");
     _print(stdout, @"\t\tPrints org-mode files\n");
+    _print(stdout, @"\trem parseorg\n");
+    _print(stdout, @"\t\tParses a JSON file exported from org-export-json and makes changes to calendars.\n");
 }
 
 /*!
@@ -137,7 +141,7 @@ static void parseArguments()
     }
 
     // OrgMode settings
-    if (command == CMD_ORGMODE) {
+    if (command == CMD_ORGMODE || command == CMD_PARSEORG) {
         showCompleted = true;
 
         if(args.count >= 2)
@@ -230,6 +234,15 @@ static void validateArguments()
     
     if (command == CMD_ORGMODE && calendar == nil)
         return;
+
+    if (command == CMD_PARSEORG && calendar == nil && orgFile != nil)
+        return;
+
+    if (command == CMD_PARSEORG && orgFile == nil)
+    {
+        _print(stderr, @"rem: Error - did not specify org file.\n");
+        exit(-1);
+    }
 
     if (command == CMD_ADD)
         return;
@@ -479,24 +492,23 @@ static void printOrgMode()
                 
                 [fileHandle writeData:[[NSString stringWithFormat:@"** %@ %@%@\n", flag, priority, reminder.title] dataUsingEncoding:NSUTF8StringEncoding]];
 
-                [fileHandle writeData:[[NSString stringWithFormat:@":LOGBOOK:\nAPPLE_REM_ID: %@\n:END:\n", reminder.calendarItemIdentifier] dataUsingEncoding:NSUTF8StringEncoding]];
-
-                 if (reminder.completed) {
-                   [fileHandle writeData:[[NSString stringWithFormat: @"CLOSED: [%@] ", [dateFormatter stringFromDate:reminder.completionDate]] dataUsingEncoding:NSUTF8StringEncoding]];
+                if (reminder.completed) {
+                    [fileHandle writeData:[[NSString stringWithFormat: @"CLOSED: [%@] ", [dateFormatter stringFromDate:reminder.completionDate]] dataUsingEncoding:NSUTF8StringEncoding]];
                 }
 
-                 NSArray *alarms = reminder.alarms;
+                NSArray *alarms = reminder.alarms;
 
-                 for(NSUInteger j = 0; j < alarms.count; j++)
-                 {
-                     EKAlarm *alarm = [alarms objectAtIndex:j];
-                     NSDate *dueDate = alarm.absoluteDate;
+                for(NSUInteger j = 0; j < alarms.count; j++)
+                {
+                    EKAlarm *alarm = [alarms objectAtIndex:j];
+                    NSDate *dueDate = alarm.absoluteDate;
                     
-                     if (dueDate) {
-                         [fileHandle writeData:[[NSString stringWithFormat: @"SCHEDULED: <%@>\n", [dateFormatterSchedule stringFromDate:dueDate]] dataUsingEncoding:NSUTF8StringEncoding]];
-                     }
-                 }
+                    if (dueDate) {
+                        [fileHandle writeData:[[NSString stringWithFormat: @"SCHEDULED: <%@>", [dateFormatterSchedule stringFromDate:dueDate]] dataUsingEncoding:NSUTF8StringEncoding]];
+                    }
+                }
 
+                [fileHandle writeData:[[NSString stringWithFormat:@"\n:LOGBOOK:\nUNIQUEID: %@\n:END:\n", reminder.calendarItemIdentifier] dataUsingEncoding:NSUTF8StringEncoding]];
 
                 [fileHandle writeData:[[NSString stringWithFormat:@"Created: [%@]\n", [dateFormatter stringFromDate:reminder.creationDate]] dataUsingEncoding:NSUTF8StringEncoding]];
 
@@ -517,6 +529,389 @@ static void printOrgMode()
             }
         }
     }
+}
+/*!
+    @function parseOrgMode
+    @abstract parses JSON files in org-mode syntax and adds changes to reminder lists
+    @description parses JSON files in org-mode syntax and adds changes to reminder lists
+ */
+static void parseOrgMode()
+{
+    NSFileHandle* fileHandle = [NSFileHandle fileHandleForReadingAtPath:orgFile];
+    NSData *returnedData = [fileHandle readDataToEndOfFile];
+    if(!returnedData)
+    {
+        _print(stderr, @"rem: Error - could not read .org.json file.\n");
+        exit(-1);
+    }
+
+    if(NSClassFromString(@"NSJSONSerialization"))
+    {
+        NSError *error = nil;
+        id object = [NSJSONSerialization
+                      JSONObjectWithData:returnedData
+                                 options:0
+                                   error:&error];
+
+        if(error)
+        {
+            _print(stderr, @"rem: Error - .org.json file seems not to be a valid JSON file.\n");
+            exit(-1);
+        }
+
+
+        if([object isKindOfClass:[NSArray class]])
+        {
+            NSArray *results = object;
+            // results[0] == "org-data"
+            // results[1] == ""
+            // results[2..n] == calendars 
+            if([results[0] isEqualToString:@"org-data"])
+            {
+                // each for-loop runthrough is one calendar
+                for (NSUInteger i = 2; i < results.count; i++) {
+                    NSArray *calendar = results[i];
+                    // calendar[0] == "headline"
+                    // calendar[1] == NSDictionary with title of calendar
+                    // calendar[2..n] == NSArray with reminders for this calendar
+                    if([calendar[0] isEqualToString:@"headline"])
+                    {
+                        NSString* calendarName = calendar[1][@"title"][0];
+                        for (NSUInteger j = 2; j < calendar.count; j++) {
+                            NSArray *reminder = calendar[j];
+                            // reminder[0] == "headline"
+                            // reminder[1] == NSDictionary containing title of reminder as well as TODO/DONE status
+                            // reminder[2..n] == NSArray of sections
+                            NSString *reminderName = reminder[1][@"title"][0];
+
+                            bool completed = false;
+                            NSString* todo_keyword = reminder[1][@"todo-keyword"];
+                            if([todo_keyword isEqualToString:@"DONE"])
+                                completed = true;
+
+                            id prio = reminder[1][@"priority"];
+                            int priority = 0;
+                            if([prio isKindOfClass:[NSNumber class]])
+                            {
+                                // ASCII
+                                priority = [prio intValue];
+
+                                if(priority == 65) // A
+                                    priority = 1;
+                                if(priority == 66) // B
+                                    priority = 5;
+                                if(priority == 67) // C
+                                    priority = 9;
+                            }
+
+
+                            NSString* unique_id;
+                            NSDate* createdDate;
+                            NSDate* modifiedDate;
+                            NSDate* scheduledDate;
+                            NSDate* completedDate;
+                            NSString* notes = @"";
+
+                            for (NSUInteger k = 2; k < reminder.count; k++)
+                            {
+                                NSArray* sections = reminder[k];
+                                // sections[0] == "section"
+                                // sections[1] == uninteresting meta data
+                                // sections[2..n] ==
+                                // one element is called drawer -> search for apple id
+                                // one element is called paragraph -> contains element like schedule etc
+                                for (NSUInteger l = 2; l < sections.count; l++)
+                                {
+                                    NSArray* section = sections[l];
+                                    
+                                    //NSLog(@"%@", section);
+                                    // section[0] == "drawer" or "paragraph" or "planning"
+                                    // section[1] == NSDictionary with meta data about section, such as drawer-name
+                                    // section[2..n] == NSArray with data in section
+                                    if([section[0] isEqualToString:@"drawer"])
+                                    {
+                                        NSString* sectionName = section[1][@"drawer-name"];
+                                        if([sectionName isEqualToString:@"LOGBOOK"])
+                                        {
+                                            NSArray* drawerContent = section[2];
+                                            // data is kind of cryptic again
+                                            // drawerContent[0] == "paragraph"
+                                            // drawerContent[1..n] ==
+                                            // elements where one element:
+                                            //     x == "UNIQUEID: " + id + "\n"
+
+                                            for (NSUInteger m = 1; m < drawerContent.count; m++)
+                                            {
+                                                if(![drawerContent[m] isKindOfClass:[NSString class]])
+                                                    continue;
+
+                                                if([drawerContent[m] hasPrefix:@"UNIQUEID: "])
+                                                {
+                                                    unique_id = drawerContent[m];
+                                                    break;
+                                                }
+                                            }
+
+                                            // format the string
+                                            // assumes ": " in front and "\n" in end. removes exactly that.
+                                            if(unique_id)
+                                            {
+                                                unique_id = [unique_id substringToIndex:[unique_id length]-1];
+                                                unique_id = [unique_id substringFromIndex:10];
+                                            }
+                                        }
+                                        else
+                                        {
+                                            // only interested in logbook
+                                        }
+                                    }
+                                    else if([section[0] isEqualToString:@"planning"])
+                                    {
+                                        NSDictionary* plans = section[1];
+
+                                        // does not support deadlines
+                                        if(plans[@"scheduled"] &&
+                                               [plans[@"scheduled"] isKindOfClass:[NSArray class]])
+                                        {
+                                            NSString* dateString;
+                                            // only handle timestamps
+                                            if([plans[@"scheduled"][0] isEqualToString:@"timestamp"])
+                                            {
+                                                dateString = plans[@"scheduled"][1][@"raw-value"];
+                                                dateString = [dateString stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"[]<>"]];
+
+                                                NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
+                                                [dateFormatter setDateFormat:@"yyyy-MM-dd"];
+                                                [dateFormatter setTimeZone:[NSTimeZone timeZoneWithName:@"GMT"]];
+
+                                                NSDate* date = [dateFormatter dateFromString:dateString];
+                                                if(date == nil)
+                                                {
+                                                    [dateFormatter setDateFormat:@"yyyy-MM-dd HH:mm"];
+                                                    date = [dateFormatter dateFromString:dateString];
+                                                }
+                                                if(date == nil)
+                                                {
+                                                    [dateFormatter setDateFormat:@"yyyy-MM-dd EEE"];
+                                                    date = [dateFormatter dateFromString:dateString];
+                                                }
+                                                if(date == nil)
+                                                {
+                                                    [dateFormatter setDateFormat:@"yyyy-MM-dd EEE HH:mm"];
+                                                    date = [dateFormatter dateFromString:dateString];
+                                                }
+                                                scheduledDate = date;
+                                            }
+                                        }
+
+                                        if(plans[@"closed"] &&
+                                               [plans[@"closed"] isKindOfClass:[NSArray class]])
+                                        {
+                                            NSString* dateString;
+                                            // only handle timestamps
+                                            if([plans[@"closed"][0] isEqualToString:@"timestamp"])
+                                            {
+
+                                                dateString = plans[@"closed"][1][@"raw-value"];
+                                                dateString = [dateString stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"[]<>"]];
+                                                //NSLog(@"close date: %@", dateString);
+                                                NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
+                                                [dateFormatter setDateFormat:@"yyyy-MM-dd"];
+                                                [dateFormatter setTimeZone:[NSTimeZone timeZoneWithName:@"GMT"]];
+
+                                                NSDate* date = [dateFormatter dateFromString:dateString];
+                                                if(date == nil)
+                                                {
+                                                    [dateFormatter setDateFormat:@"yyyy-MM-dd HH:mm"];
+                                                    date = [dateFormatter dateFromString:dateString];
+                                                }
+                                                if(date == nil)
+                                                {
+                                                    [dateFormatter setDateFormat:@"yyyy-MM-dd EEE"];
+                                                    date = [dateFormatter dateFromString:dateString];
+                                                }
+                                                if(date == nil)
+                                                {
+                                                    [dateFormatter setDateFormat:@"yyyy-MM-dd EEE HH:mm"];
+                                                    date = [dateFormatter dateFromString:dateString];
+                                                }
+                                                completedDate = date;
+                                            }
+                                        }
+                                    }
+                                    else if([section[0] isEqualToString:@"paragraph"])
+                                    {
+                                        // metadata of paragraph uninteresting. jump to its array directly
+                                        for (NSUInteger m = 2; m < section.count; m++)
+                                        {
+                                            // if an element has sub-metadata, it resides in m+1
+                                            // this is a little bit inconvenient
+                                            NSString* paragraphElementName = section[m];
+
+                                            // if name != NSString, then this is metadata
+                                            if(![paragraphElementName isKindOfClass:[NSString class]])
+                                            {
+                                                continue;
+                                            }
+
+                                            // format
+                                            paragraphElementName = [paragraphElementName stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@": \n"]];
+
+                                            // avoid out of border things
+                                            if(m+1 < section.count)
+                                            {
+                                                // if next element is meta data
+                                                if([section[m+1] isKindOfClass:[NSArray class]])
+                                                {
+                                                    NSString* dateString;
+                                                    // only handle timestamps
+                                                    if([section[m+1][0] isEqualToString:@"timestamp"])
+                                                    {
+                                                        dateString = section[m+1][1][@"raw-value"];
+                                                        dateString = [dateString stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"[]<>"]];
+
+                                                        NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
+                                                        [dateFormatter setDateFormat:@"yyyy-MM-dd HH:mm"];
+                                                        [dateFormatter setTimeZone:[NSTimeZone timeZoneWithName:@"GMT"]];
+                                            
+                                                        NSDate* date = [dateFormatter dateFromString:dateString];
+
+
+                                                        //NSLog(@"%@", dateString);
+                                                        if(date == nil)
+                                                        {
+                                                            [dateFormatter setDateFormat:@"yyyy-MM-dd"];
+                                                            date = [dateFormatter dateFromString:dateString];
+                                                        }
+
+                                                        if(date == nil)
+                                                        {
+                                                            [dateFormatter setDateFormat:@"yyyy-MM-dd EEE"];
+                                                            date = [dateFormatter dateFromString:dateString];
+                                                        }
+
+                                                        if(date == nil)
+                                                        {
+                                                            [dateFormatter setDateFormat:@"yyyy-MM-dd EEE HH:mm"];
+                                                            date = [dateFormatter dateFromString:dateString];
+                                                        }
+                                                       
+                                            
+                                                        //NSLog(@"%@", date);
+
+
+                                                        if([paragraphElementName isEqualToString:@"Modified"])
+                                                        {
+                                                            modifiedDate = date;
+                                                        }
+                                                        if([paragraphElementName isEqualToString:@"Created"])
+                                                        {
+                                                            createdDate = date;
+                                                        }
+
+                                                        // We continue for loop here. Everything which wasn't a
+                                                        // timestamp gets added to note.
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+
+                                            if(![paragraphElementName isEqualToString:@"\n"])
+                                                notes = [NSString stringWithFormat:@"%@\n%@", notes, paragraphElementName];
+                                        }
+                                    }
+                                    else
+                                    {
+                                        // ignore other sections
+                                    }
+                                }
+                            }
+
+                            // We collected all data about this reminder on the way.
+                            // Update it!
+                            
+                            // NSLog(@"Calendar: %@", calendarName);
+                            // NSLog(@"Reminder Name: %@", reminderName);
+                            // NSLog(@"Completion status: %d", completed);
+                            // NSLog(@"Priority: %d", priority);
+                            // NSLog(@"Created: %@", createdDate);
+                            // NSLog(@"Modified: %@", modifiedDate);
+                            // NSLog(@"Scheduled: %@", scheduledDate);
+                            // NSLog(@"Completed: %@", completedDate);
+                            // NSLog(@"Notes: %@", notes);
+                            // NSLog(@"Unique ID: %@\n\n", unique_id);
+
+                            EKReminder* original = (EKReminder *)[store calendarItemWithIdentifier:unique_id];
+
+                            if(original)
+                            {
+                                original.title = reminderName;
+                                original.priority = priority;
+                                original.notes = notes;
+
+                                // Read only variables (logically)
+                                // original.creationDate = createdDate;
+                                // original.lastModifiedDate = modifiedDate;
+
+
+                                original.completed = completed ? YES : NO;
+                                if(original.completed)
+                                {
+                                    original.completionDate = completedDate;
+                                }
+
+                                if(scheduledDate != nil)
+                                {
+                                    for(EKAlarm *alarm in original.alarms)
+                                    {
+                                        [original removeAlarm:alarm];
+                                    }
+
+                                    EKAlarm *alarm = [EKAlarm alarmWithAbsoluteDate:scheduledDate];
+                                    [original addAlarm:alarm];
+                                }
+
+                                BOOL success = [store saveReminder:original commit:YES error:&error];
+                                if (!success) {
+                                    _print(stderr, @"rem: Error updating Reminder (%@)\n\t%@", unique_id, [error localizedDescription]);
+                                }
+                                
+                            }
+                            else
+                            {
+                                _print(stderr, @"rem: Error - could not find unique ID in database\n");
+                                // don't exit, just skip
+                            }
+    
+                        }
+                    }
+                    else
+                    {
+                        _print(stderr, @"rem: Error - .org.json file seems not to be a valid JSON file.\n");
+                        exit(-1);
+                    }
+                }
+            }
+            else
+            {
+                _print(stderr, @"rem: Error - .org.json file seems not to be a valid JSON file.\n");
+                exit(-1);
+            }
+        }
+        else
+        {
+            NSLog(@"test");
+        }
+    }
+    
+    /*
+
+BOOL success = [store saveReminder:reminder commit:YES error:&error];
+    if (!success) {
+        _print(stderr, @"rem: Error marking Reminder (%@) from list %@\n\t%@", reminder_id, calendar, [error localizedDescription]);
+    }
+
+     */
 }
 
 /*!
@@ -544,6 +939,9 @@ static void handleCommand()
         break;
     case CMD_ORGMODE:
         printOrgMode();
+        break;
+    case CMD_PARSEORG:
+        parseOrgMode();
         break;
     case CMD_HELP:
     case CMD_VERSION:
